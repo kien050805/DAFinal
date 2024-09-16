@@ -1,0 +1,494 @@
+---
+title: "Climate's brew: Final Report"
+format:
+  html:
+    code-fold: true
+    self-contained: true
+editor: visual
+author: "Kien Le T."
+bibliography: Final.bib
+date: "`r Sys.Date()`"
+---
+
+------------------------------------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+```{r, include = FALSE}
+#Library Import
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(Hmisc)
+library(ggthemes)
+library(ggmap)
+library(knitr)
+library(xtable)
+library(pander)
+library(GGally)
+library(ggfortify)
+library(MASS)
+library(car)
+library(lindia)
+library(stringr)
+library(extrafont)
+library(wordcloud)
+```
+
+```{r, include = FALSE}
+# coffee_df_with_type_and_region.csv dataset
+coffee_review <- read.csv("coffee_df_with_type_and_region.csv")
+
+coffee_review <- coffee_review |>
+  mutate(Region = 
+    ifelse(region_asia_pacific == 1, "Asia Pacific",
+    ifelse(region_caribbean == 1, "Caribbean",
+    ifelse(region_central_america == 1, "Central America",
+    ifelse(region_hawaii == 1, "Hawaii",
+    ifelse(region_africa_arabia == 1, "Africa Arabia",
+    ifelse(region_south_america == 1, "South America",
+           NA)))))))
+
+coffee_review$roast = factor(coffee_review$roast, levels = c("Dark", "Medium-Dark", "Medium", "Medium-Light", "Light"))
+
+
+coffee_review <- coffee_review |>
+  separate(agtron, into = c("agtron1", "agtron2"), sep = "[/]") |>
+  mutate(
+    agtron1 = as.numeric(agtron1),
+    agtron2 = as.numeric(agtron2)
+  )
+
+coffee_review <- coffee_review |>
+  filter(agtron2 > 0) |>
+  separate(est_price, into = c("price"), sep = ";") |>
+  separate(price, into = c("price"), sep = "[(]") |>
+  mutate(price = ifelse(grepl("/", price), price, NA)) |>
+  separate(price, into = c("price", "volume"), sep = "[/]")
+
+coffee_review = coffee_review |>
+  mutate(currency_ex = 
+    ifelse(grepl("£", price), 1.24,
+    ifelse(grepl("¥", price), 0.0065,
+    ifelse(grepl("€", price), 1.07,
+    ifelse(grepl("pesos", price), 0.058,
+    ifelse(grepl("Euros", price), 1.07,
+    ifelse(grepl("US", price), 1,
+    ifelse(grepl("NT", price), 0.031,
+    ifelse(grepl("RM", price), 0.21,
+    ifelse(grepl("HK", price), 0.13,
+    ifelse(grepl("CAD", price), 0.73,
+    ifelse(grepl("AED", price), 0.27,
+    ifelse(grepl("KRW", price), 0.00073,
+    ifelse(grepl("THB", price), 0.027,
+    ifelse(grepl("LAK", price), 0.000047,
+    ifelse(grepl("IDR", price), 0.000062,
+    ifelse(grepl("AUD", price), 0.65,
+          1))))))))))))))))) |>
+  mutate(price_in_USD = gsub("[($|¥|£|€|,|#|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)*]", "", coffee_review$price, ignore.case = TRUE)) |>
+  mutate(price_in_USD = str_remove_all(price_in_USD, " ")) |>
+  mutate(price_in_USD = as.numeric(price_in_USD)) |>
+  mutate(price_in_USD = price_in_USD * currency_ex) |>
+  mutate(weight_unit = 
+    ifelse(grepl("ounce", volume), 28.3495,
+    ifelse(grepl("capsules", volume), NA,
+    ifelse(grepl("pound", volume), 453.592,
+    ifelse(grepl("kilo", volume), 1000,
+    ifelse(grepl("g", volume), 1,
+           NA)))))) |>
+  mutate(volume_in_gram = gsub("[(*|-|a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|x|y|z)*]", "", coffee_review$volume, ignore.case = TRUE)) |>
+  mutate(volume_in_gram = str_remove_all(volume_in_gram, " ")) |>
+  mutate(volume_in_gram = as.numeric(volume_in_gram)) |>
+  mutate(volume_in_gram = volume_in_gram * weight_unit) |>
+  mutate(USD_gram = price_in_USD / volume_in_gram * 100)
+
+```
+
+```{r, include = FALSE}
+# Coffee Dataset exporters
+Coffee_export <- read.csv("Coffee_export.csv")
+Coffee_domestic_consumption <- read.csv("Coffee_domestic_consumption.csv")
+Coffee_production <- read.csv("Coffee_production.csv")
+
+Coffee_export <- Coffee_export |>
+  pivot_longer(
+    cols = 2:31,
+    names_to = "year",
+    values_to = "export"
+  )
+
+Coffee_production <- Coffee_production |>
+  pivot_longer(
+    cols = 3:32,
+    names_to = "year",
+    values_to = "production"
+  ) |>
+  separate(year, into = c("year"), sep = 5)
+
+Coffee_domestic_consumption <- Coffee_domestic_consumption |>
+  pivot_longer(
+    cols = 3:32,
+    names_to = "year",
+    values_to = "domestic_consumption"
+  ) |>
+  separate(year, into = c("year"), sep = 5)
+  
+
+coffee_exporter <- left_join(Coffee_production, 
+                             Coffee_export, 
+                             by = c("Country", "year"))
+coffee_exporter <- left_join(coffee_exporter, 
+                             Coffee_domestic_consumption, 
+                             by = c("Country", "year", "Coffee.type"))
+
+coffee_exporter <- coffee_exporter |>
+  relocate(Country, Coffee.type, year, production, export, domestic_consumption, Total_production, Total_export, Total_domestic_consumption) |>
+  mutate(year = as.numeric(str_remove_all(year, "X")),
+         Country = ifelse(Country == "Viet Nam", "Vietnam",
+                   ifelse(Country == "Bolivia (Plurinational State of)", "Bolivia", 
+                   ifelse(Country == "Congo","Democratic Republic of the Congo",
+                   ifelse(Country == "Lao People's Democratic Republic", "Laos", Country)))))
+```
+
+```{r, include = FALSE}
+# Coffee Dataset importers
+Coffee_import <- read.csv("Coffee_import.csv")
+Coffee_importers_consumption <- read.csv("Coffee_importers_consumption.csv")
+
+Coffee_import <- Coffee_import |>
+  pivot_longer(
+    cols = 2:31,
+    names_to = "year",
+    values_to = "import")
+
+Coffee_importers_consumption <- Coffee_importers_consumption |>
+  pivot_longer(
+    cols = 2:31,
+    names_to = "year",
+    values_to = "import_consumption"
+  )
+
+coffee_importer <- left_join(Coffee_import, Coffee_importers_consumption, by = c("Country", "year"))
+coffee_importer <- coffee_importer |>
+  relocate(Country, year, import, import_consumption, Total_import, Total_import_consumption) |>
+  mutate(year = as.numeric(str_remove_all(year, "X"))) |>
+  mutate(Country = 
+    ifelse(Country == "United Kingdom", "United Kingdom",
+    ifelse(Country == "United States of America", "United States of America",
+    ifelse(Country == "Russian Federation", "Russian Federation",
+    str_remove_all(Country, " ")))))
+
+```
+
+```{r, include = FALSE}
+#city_temperature.csv dataset
+city_temperature <- read.csv("city_temperature.csv")
+
+city_month_avg <- city_temperature |>
+  filter(AvgTemperature > -99) |>
+  group_by(Region, Country, State, City, Month) |>
+  summarise(
+    month_temp_F = mean(AvgTemperature),
+    month_temp_C = (month_temp_F - 32) * (5 / 9)
+  )
+
+exporter_temp <- city_month_avg |>
+  filter(Country %in% coffee_exporter$Country) |>
+  group_by(Country, Month) |>
+  summarise(country_temp_C = mean(month_temp_C),
+            country_temp_F = mean(month_temp_F))
+
+```
+
+# I - Introduction
+
+In modern society, coffee has become one of the most popular daily consumer goods and has integrated itself into modern culture. Coffee is omnipresent, appearing in various aspects of society, whether during conversations, in the workplace, or within households. A seemingly simple yet meaningful question often arises: "What constitutes a truly delicious cup of coffee?" There are myriad responses to this query, ranging from the type of coffee, its brand, origin, and even its price. Addressing all these factors comprehensively is daunting, so this research will focus on one aspect that cannot be overlooked: the impact of the coffee origin.
+
+This research will mainly use data that can be found online. Most of these data sets come from [Kaggle](https://www.kaggle.com/), a website for learning data science. The selected data sets include:
+
+-   [Coffee Dataset](https://www.kaggle.com/datasets/michals22/coffee-dataset): This data set contains economic indicators related to coffee production, exportation, importation,etc., enabling the identification of major coffee-producing and exporting countries globally.
+
+-   [Coffee Review](https://www.kaggle.com/datasets/hanifalirsyad/coffee-scrap-coffeereview/versions/2): This data set offers insights into the taste and price of coffee, allowing for an assessment of the overall quality of coffee production processes.
+
+-   [Daily Temperature of Major Cities](https://www.kaggle.com/datasets/sudalairajkumar/daily-temperature-of-major-cities): This data set provides information about temperature conditions in major cities worldwide, including regions where coffee is grown.
+
+------------------------------------------------------------------------
+
+# II - Ethical Consideration
+
+Before researching and analyzing, there are ethical considerations that need attention in the coffee-producing industry. The journey of a coffee bean goes through different individuals, from coffee farmers, exporters, importers, roasters, and retailers, before reaching the consumer. Each of these stakeholders plays an important role in the coffee supply chain, from cultivation to consumption. In that chain, there is an ethical concern around ensuring fair treatment for coffee farmers on coffee plantations, especially in developing countries where exploitative behavior can occur due to low labor standards. In addition, environmental responsibility is also an issue of coffee production, since the processes may impact the local ecosystem.
+
+Regarding the data used in this research, the data set's primary sources come from the International Coffee Organization (ICO) and [coffeereview.com](https://www.coffeereview.com/), together with the University of Dayton. Accuracy, as well as ethics, will therefore be ensured by the ethical standard of the party collecting the data. Regarding this research, data will be analyzed impartially to avoid biases that could skew the findings, along with ensuring the accuracy of the analysis of the data. In addition, integrity and accountability, as well as the potential consequences of the findings for all stakeholders in the coffee industry, are also conducted in this research.
+
+------------------------------------------------------------------------
+
+# III - Data Explanation and Exploration
+
+### 1. Coffee Dataset
+
+Start with the Coffee Dataset from the International Coffee Organization (ICO). This data set has several economic indicators about coffee, including production, domestic consumption, exports, imports, and importers' consumption. For a convenient analysis process, these data sets are merged into two: one focusing on coffee exporters and the other on coffee importers.
+
+First, let's look at countries that grow and export coffee. The following map will help better visualize the origin of most coffee in the world.
+
+```{r}
+ggplot(map_data("world"), aes(long, lat, fill = ifelse(region %in% coffee_exporter$Country, "#4D0A0A", "grey"), group = group)) +
+  geom_polygon(colour = "white", size = 0.1) +
+  labs(
+    title = "Coffee producing countries",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  scale_fill_identity() +
+  theme_tufte() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+A notable point of the map above is that coffee-exporting countries are concentrated near the equator, in the tropical region. This is decisive because coffee is a tropical plant, so its cultivation is limited to countries with high average temperatures.
+
+Also, this data set indicates the top 5 coffee-producing countries, namely Brazil, Vietnam, Colombia, Indonesia, and Ethiopia. The chart below describes the coffee output of these countries in the period 1990 - 2019.
+
+```{r}
+coffee_exporter |>
+  filter(Total_production > 8500000000) |>
+  group_by(Country) |>
+  mutate(production.ton = production / 1000000) |>
+  ggplot(aes(x = year, y = production.ton, color = Country)) +
+  geom_line() +
+  labs(
+    x = "Year",
+    y = "Coffee Production (1000 tons)",
+    title = "Top 5 country with highest Coffee production"
+  ) +
+  scale_x_continuous(breaks = seq(1990, 2020, 3)) +
+  theme_tufte() +
+  theme(
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent"),
+    legend.box.background = element_rect(fill = "transparent")
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+From the chart, Brazil is the largest coffee producer in the world, yielding approximately 4 million tons in 2019. Followed by Vietnam, at about 2 million tons.
+
+Another question is which countries import the most coffee, and how has the coffee demand increased? The chart below describes the amount of coffee imported over the same period of the top five countries that import the most coffee in the world:
+
+```{r}
+coffee_importer |>
+  filter(Total_import > 10000000000) |>
+  group_by(Country) |>
+  mutate(import.ton = import / 1000000) |>
+  ggplot(aes(x = year, y = import.ton, color = Country)) +
+  geom_line() +
+  labs(
+    title = "Top 5 Coffee importing countries",
+    x = "Year",
+    y = "Coffee import (1000 tons)"
+  ) +
+  scale_x_continuous(breaks = seq(1990, 2020, 3)) +
+  theme_tufte() +
+  theme(
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent"),
+    legend.box.background = element_rect(fill = "transparent")
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+The United States is the country that imports the most coffee in the world, as they imported nearly 2 million tons of coffee in 2019, followed by Germany, which also imported more than 1 million tons. The demand for coffee in these countries is increasing, which gives an insight into the overall demand of coffee.
+
+### 2. Daily Temperature of Major Cities
+
+The data set on temperature in major cities gives a more intuitive view of the temperature in coffee-growing countries, such as the average temperature in each month of these countries. Even though this temperature comes from major cities, it can still be considered a relatively accurate indicator of the temperature where the coffee is grown. The chart below depicts the average annual temperature in the countries with the most coffee production in the world mentioned above:
+
+```{r}
+exporter_temp |>
+  filter(Country %in% c("Brazil", "Colombia", "Ethiopia", "Indonesia", "Vietnam")) |>
+  ggplot(aes(x = Month, y = country_temp_C, color = Country)) +
+  geom_line() +
+  labs(
+    x = "Month",
+    y = "Average temperature in degree Celsius",
+    title = "Coffee producing countries average Temperature"
+  ) +
+  scale_x_continuous(breaks = seq(1, 12, 1)) +
+  scale_y_continuous(sec.axis = sec_axis(~ . * 1.8 + 32, name = "Fahrenheit")) +
+  theme_tufte() +
+  theme(
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent"),
+    legend.box.background = element_rect(fill = "transparent")
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+The highlight of coffee-producing countries is their consistently high average temperatures since no country has a month with an average temperature lower than 10 degrees Celsius. This is compulsory, since coffee's optimal temperature range, according to [@scott_2015_climate] is from 18°C–21°C (64°–70°F ). In addition, the temperature amplitude of these countries is relatively small, except for Vietnam.
+
+### 3. Coffee Review
+
+This is a data set about coffee reviews, with a primary source from [coffeereview.com](https://www.coffeereview.com/), with only 2218 observations. This data set gives descriptions of different coffee lines, along with aspects of it, like rating, roasting, origin, flavor, or price.
+
+One prominent aspect that is said to influence the coffee flavor is the degree of roasting, ranging from light to dark:
+
+```{r}
+ggplot(coffee_review, aes(x = roast, fill = roast)) +
+  geom_bar() + 
+  labs(
+    x = "Roasting Level",
+    y = "Number of lines",
+    title = "Coffee Roasting Level"
+  ) +
+  theme_tufte() +
+  theme(
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    legend.position = "none"
+  ) +
+  scale_fill_manual(values = c("Dark" = "#38220f", 
+                               "Medium-Dark" = "#634832",
+                               "Medium" = "#967259",
+                               "Medium-Light" = "#DBC1AC",
+                               "Light" = "#ECE0D1")) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+Most coffee is roasted to a medium-light level, so it is not overly bitter and suitable for most people's preferences. There are fewer number of coffee lines roasted to medium and medium dark. This distribution may explain the preference for coffee roast levels.
+
+------------------------------------------------------------------------
+
+# IV - Statistical Analysis and Interpretation
+
+### 1. Origin
+
+Origin is considered to significantly affect the quality, especially the price of coffee. The following regression model is used to test the relationship between the region and the price:
+
+```{r}
+mod <- lm(data = coffee_review, USD_gram ~ Region) 
+summary(mod) |>
+  xtable::xtable() |>
+  pander()
+```
+
+Compared to the Africa-Arabia region, coffee from Central America and Hawaii are higher in value, with the coefficients of `r mod[["coefficients"]][["RegionCentral America"]] |> round(3)` and `r mod[["coefficients"]][["RegionHawaii"]] |> round(3)`, respectively. The small p-value `r summary(mod)$coefficients[,4][4] |> round(9)` (for Central America) and `r summary(mod)$coefficients[,4][5] |> round(8)` (for Hawaii) indicate that the origin from these two regions significantly affects the coffee price.
+
+### 2. Taste: aroma, acid, body, flavor, aftertaste
+
+Taste is also considered a determining factor in price. Several variables can be used to determine this such as: aroma, acidity, body, flavor, and aftertaste. Before adding all these variables to the model, it is reasonable to check for multicollinearity:
+
+```{r}
+ggpairs(data = coffee_review, columns = c("aroma", "acid", "body", "flavor", "aftertaste")) +
+  theme_tufte() +
+  theme(
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.minor=element_line(color="grey")
+  )
+```
+
+Through the above check, it is clear that all of these variables are multicollinearity. Therefore, for the final model, only the flavor variable should be included.
+
+### 3. Type: espresso, organic, decaffeinated, and aged
+
+Other things that can also affect the value of coffee are the classification into different categories such as espresso, organic, decaffeinated, and aged. Four two sample t.test to check how being classified into these coffee lines affects the price:
+
+```{r}
+t.test(filter(coffee_review, type_espresso == 1)$USD_gram, filter(coffee_review, type_espresso == 0)$USD_gram, var.equal = TRUE) |>
+  pander(caption = "Two Sample t-test: `type_espresso == 1` and `type_espresso == 0`")
+
+t.test(filter(coffee_review, type_organic == 1)$USD_gram, filter(coffee_review, type_organic == 0)$USD_gram, var.equal = TRUE) |>
+  pander(caption = "Two Sample t-test: `type_organic == 1` and `type_organic == 0`")
+
+t.test(filter(coffee_review, type_decaffeinated == 1)$USD_gram, filter(coffee_review, type_decaffeinated == 0)$USD_gram, var.equal = TRUE) |>
+  pander(caption = "Two Sample t-test: `type_decaffeinated == 1` and `type_decaffeinated == 0`")
+
+t.test(filter(coffee_review, type_aged == 1)$USD_gram, filter(coffee_review, type_aged == 0)$USD_gram, var.equal = TRUE) |>
+  pander(caption = "Two Sample t-test: `type_aged == 1` and `type_aged == 0`")
+```
+
+The results of the t.test indicate that being classified as espresso, organic, or aged significantly affects the coffee price. All of these tests yield a significantly small p-value, except for the decaffeinated category.
+
+### 4. Model and model validation
+
+At this point, a multivariate linear regression can be constructed to predict the price using the aforementioned variables.
+
+```{r}
+mod_full <- lm(data = coffee_review, USD_gram ~ Region + flavor + type_espresso + type_organic + type_aged)
+summary(mod_full) |>
+  xtable::xtable() |>
+  pander()
+```
+
+```{r, include=FALSE}
+step_model <- stepAIC(mod_full)
+```
+
+After performing stepwise regression using the Akaike Information Criterion (AIC), the variable `type_espresso` was removed from the model. The updated model is:
+
+```{r}
+summary(step_model) |>
+  xtable::xtable() |>
+  pander()
+```
+
+Validate the model by plotting the histogram of Residuals
+
+```{r}
+ggplot(data = step_model, aes(x = step_model$residuals)) +
+  geom_histogram(color = 'black', bins = 100) +
+  labs(title = 'Histogram of Residuals', x = 'Residuals', y = 'Frequency') +
+  theme_tufte() +
+  theme(
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.minor=element_line(color="grey")
+  )
+```
+
+The histogram shows a normal distribution, with some outliers. To gain insight into this model, analyzed the following diagnostic plots:
+
+```{r}
+autoplot(step_model)  + 
+  theme_tufte() +
+  theme(
+    panel.background = element_rect(fill = "transparent"),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.minor=element_line(color="grey"))
+```
+
+Looking closer at the diagnostic plots, it is clear that
+
+-   The residuals vs. fitted plot has a relatively flat fit line.
+
+-   The normal Q-Q plot has a point relatively close to the diagonal scale.
+
+-   The scale-location plot also has a relatively flat smoothed line, with just small dip at 0.
+
+-   The residuals vs. leverage also result in the flat smoothed line.
+
+The diagnostic plots suggests that the model has been validated.
+
+Expressing this model, it becomes evident that origin, flavor, and aging significantly impact the price of coffee. In particular, Central America has an estimated slope of `r step_model[["coefficients"]][["RegionCentral America"]] |> round(3)`, along with the region Hawaii, with a slope of `r step_model[["coefficients"]][["RegionHawaii"]] |> round(3)`. This suggests that coffee from these two regions increases by \$8.5 (for Central America region) and \$10.8 (for Hawaii region) per 100 grams. Flavor has a slope of `r step_model[["coefficients"]][["flavor"]] |> round(3)`, with a p-value of `r summary(step_model)$coefficients[,4][7] |> round(24)`, showing a positive correlation with price. Most notably, ageing has a significant impact on price, with slope of `r step_model[["coefficients"]][["type_aged"]] |> round(3)`. If aged, the price per 100 grams of coffee increases by nearly \$52.
+
+------------------------------------------------------------------------
+
+# V - Conclusions
+
+Based on the above analysis, it can be temporarily concluded that the origin of coffee has a great influence on its price. Coffee is grown in tropical countries with consistently high temperatures throughout the year, such as Brazil, Vietnam, or Colombia. Especially, coffee from Central America or Hawaii has higher prices than in other regions. Along with that, factors such as flavor and aging also increase the value of coffee.
+
+However, the above analysis also has disadvantages. For example, this research used temperature data from major cities to indicate temperatures in coffee-growing countries. Since some countries have relatively large areas, such as Brazil, this may affect the interpretation of coffee growing conditions for coffee yields. Therefore, a further step for this research is to collect more data about weather conditions in coffee-growing countries.
+
+After all, it is difficult to determine what makes a good cup of coffee. There are factors around the cup of coffee that are not included, such as who you drink that cup of coffee with? Where and when do you drink? How do you drink? These factors may indicate your coffee experience a lot. Just based solely on data, it's not possible to figure out what a high-quality cup of coffee is. However, this analysis hopes to partially answer the question of what makes a good cup of coffee.
+
+------------------------------------------------------------------------
+
+### References
+
+::: {#refs}
+:::
