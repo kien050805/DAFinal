@@ -1,6 +1,7 @@
 # Project proposal: Climate’s brew
 
 _Project author: Kien Le T._
+
 _Instructor: Dr. Liu Bingcai_
 
 ## I – Introduction
