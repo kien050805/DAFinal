@@ -18,4 +18,3 @@ The goal of this analysis is to explore the correlation between temperature chan
 -	How to determine the flavor of coffee? What kind of coffee beans are considered delicious?
 -	What are other elements of a good cup of coffee need?
 From the objectives outlined in this research paper, I aim to provide valuable insights into the impacts throughout the coffee bean's journey. As an avid coffee enthusiast, I hope this research will contribute to enhancing the enjoyment of our morning cups of coffee.
-![image](https://github.com/user-attachments/assets/de713157-467e-4d38-9d2a-c003cf5628f4)
